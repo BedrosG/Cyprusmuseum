@@ -7,6 +7,7 @@ import numpy as np
 import base64
 import io
 from PIL import Image
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -44,9 +45,6 @@ def predict():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-import os
-
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))  # Use 5000 as default port
+    port = int(os.environ.get('PORT', 5000))  # ✅ 5000 is your original default
     app.run(host='0.0.0.0', port=port)
-

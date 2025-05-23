@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Live Object Detection</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      text-align: center;
+      font-family: sans-serif;
+      background: #f9f9f9;
+      color: #000;
+      margin: 0;
+      padding: 2em;
+    }
+    video {
+      width: 90vw;
+      max-width: 400px;
+      border: 3px solid #ccc;
+      border-radius: 12px;
+      margin-top: 1em;
+    }
+    #result {
+      font-size: 1.2em;
+      margin-top: 1em;
+    }
+    #status {
+      font-size: 0.9em;
+      color: #555;
+      margin-top: 0.5em;
+    }
+  </style>
+</head>
+<body>
+  <h2>📷 Live Object Detection</h2>
+  <video id="camera" autoplay playsinline></video>
+  <div id="result">Waiting for prediction...</div>
+  <div id="status"></div>
+
+  <script>
+    const video = document.getElementById('camera');
+    const result = document.getElementById('result');
+    const status = document.getElementById('status');
+
+    // 🧠 Update this to the IP address of your PC running Flask
+    const SERVER_URL = 'http://192.168.10.46:5000/predict';
+
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        video.srcObject = stream;
+
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+
+        setInterval(() => {
+          if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0);
+
+            const imageData = canvas.toDataURL('image/jpeg');
+
+            fetch(SERVER_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ image: imageData })
+            })
+            .then(res => {
+              if (!res.ok) {
+                throw new Error(`Server error: ${res.status} ${res.statusText}`);
+              }
+              return res.json();
+            })
+            .then(data => {
+              if (data.label && data.confidence) {
+                result.textContent = `✅ ${data.label} (${(data.confidence * 100).toFixed(2)}%)`;
+                status.textContent = '';
+              } else {
+                result.textContent = '⚠️ Prediction failed.';
+                status.textContent = 'Server responded but data was invalid.';
+              }
+            })
+            .catch(err => {
+              result.textContent = '🚫 Server not reachable.';
+              status.textContent = err.message;
+              console.error('Fetch error:', err);
+            });
+          }
+        }, 2000); // every 2 seconds
+      })
+      .catch(err => {
+        result.textContent = '🚫 Unable to access camera.';
+        status.textContent = err.message;
+        console.error('Camera error:', err);
+      });
+  </script>
+</body>
+</html>

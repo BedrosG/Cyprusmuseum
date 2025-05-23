@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Object Detection</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Cache-busting headers -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+      background-color: #ffffff;
+      color: #000000;
+      text-align: center;
+    }
+
+    h2 {
+      margin-top: 1em;
+    }
+
+    select {
+      margin-top: 1em;
+      padding: 10px;
+      font-size: 16px;
+      width: 90vw;
+      max-width: 400px;
+    }
+
+    video {
+      width: 90vw;
+      max-width: 400px;
+      margin-top: 1em;
+      border: 3px solid #ccc;
+      border-radius: 12px;
+      background-color: black;
+    }
+
+    #result {
+      margin-top: 1em;
+      font-size: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <h2>Live Object Detection</h2>
+  <select id="cameraSelect"></select>
+  <video id="camera" autoplay playsinline muted></video>
+  <div id="result">Waiting for prediction...</div>
+
+  <script>
+    const video = document.getElementById('camera');
+    const result = document.getElementById('result');
+    const cameraSelect = document.getElementById('cameraSelect');
+    const SERVER_URL = 'https://192.168.10.46:5000/predict'; // Use your backend URL/IP
+    let currentStream;
+
+    async function getCameras() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+        cameraSelect.innerHTML = '';
+        videoDevices.forEach(device => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.text = device.label || `Camera ${cameraSelect.length + 1}`;
+          cameraSelect.appendChild(option);
+        });
+
+        if (videoDevices.length > 0) {
+          startCamera(videoDevices[0].deviceId);
+        }
+      } catch (err) {
+        console.error('Error getting devices:', err);
+        result.textContent = 'Unable to access camera devices.';
+      }
+    }
+
+    async function startCamera(deviceId) {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+
+      try {
+        const constraints = {
+          video: {
+            deviceId: deviceId ? { exact: deviceId } : undefined
+          },
+          audio: false
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        currentStream = stream;
+        video.srcObject = stream;
+
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+
+        setInterval(() => {
+          if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const imageData = canvas.toDataURL('image/jpeg');
+
+            fetch(SERVER_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ image: imageData })
+            })
+            .then(res => res.json())
+            .then(data => {
+              if (data.label && data.confidence) {
+                result.textContent = `${data.label} (${(data.confidence * 100).toFixed(2)}%)`;
+              } else {
+                result.textContent = 'Prediction failed.';
+              }
+            })
+            .catch(err => {
+              console.error('Prediction error:', err);
+              result.textContent = 'Server error or unreachable.';
+            });
+          }
+        }, 2000);
+      } catch (err) {
+        console.error('Camera error:', err);
+        result.textContent = 'Camera access denied or unavailable.';
+      }
+    }
+
+    cameraSelect.addEventListener('change', () => {
+      startCamera(cameraSelect.value);
+    });
+
+    // Request permission up front to access device labels
+    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+      .then(stream => {
+        stream.getTracks().forEach(track => track.stop());
+        getCameras();
+      })
+      .catch(err => {
+        console.error('Permission denied:', err);
+        result.textContent = 'Please allow camera access and reload the page.';
+      });
+  </script>
+</body>
+</html>

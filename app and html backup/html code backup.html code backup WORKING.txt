@@ -1,0 +1,63 @@
+<h2>📷 Live Object Detection</h2>
+<video id="camera" autoplay playsinline></video>
+<div id="result">Waiting for prediction...</div>
+
+<script>
+const video = document.getElementById('camera');
+const result = document.getElementById('result');
+
+// 🧠 Update this to match your PC IP
+const SERVER_URL = 'https://192.168.10.46:5000/predict';
+
+navigator.mediaDevices.getUserMedia({ video: true })
+  .then(stream => {
+    video.srcObject = stream;
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    setInterval(() => {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0);
+
+      const imageData = canvas.toDataURL('image/jpeg');
+
+      fetch(SERVER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageData })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.label && data.confidence) {
+          result.textContent = `${data.label} (${(data.confidence * 100).toFixed(2)}%)`;
+        } else {
+          result.textContent = 'Prediction failed.';
+        }
+      })
+      .catch(err => {
+        result.textContent = '🚫 Server not reachable.';
+        console.error(err);
+      });
+    }, 2000);
+  })
+  .catch(err => {
+    console.error('Camera error:', err);
+    result.textContent = 'Unable to access camera.';
+  });
+</script>
+
+<style>
+video {
+  width: 90vw;
+  max-width: 400px;
+  border: 3px solid #ccc;
+  border-radius: 12px;
+  margin-top: 1em;
+}
+#result {
+  font-size: 1.2em;
+  margin-top: 10px;
+}
+</style>

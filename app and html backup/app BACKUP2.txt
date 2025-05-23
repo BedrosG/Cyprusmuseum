@@ -1,0 +1,94 @@
+from flask import Flask, request, Response, jsonify, render_template_string
+from flask_cors import CORS
+import tensorflow as tf
+from tensorflow.keras.applications.mobilenet_v2 import decode_predictions, preprocess_input
+from tensorflow.keras.preprocessing import image
+import numpy as np
+import base64
+import cv2
+import io
+from PIL import Image
+
+app = Flask(__name__)
+CORS(app)
+
+# Load model
+model = tf.keras.applications.MobileNetV2(weights='imagenet')
+
+# Video stream generator
+def gen_frames():
+    cap = cv2.VideoCapture(0)
+    while True:
+        success, frame = cap.read()
+        if not success:
+            break
+        else:
+            # Draw "Waiting for prediction..." placeholder
+            text = "Waiting for prediction..."
+            cv2.putText(frame, text, (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+            ret, buffer = cv2.imencode('.jpg', frame)
+            frame = buffer.tobytes()
+
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+# Web UI (white background)
+@app.route('/')
+def index():
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Mobile Camera Object Detection</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { text-align: center; font-family: sans-serif; background: #fff; color: #333; }
+            img { width: 95vw; border: 4px solid #ccc; border-radius: 12px; margin-top: 1em; }
+        </style>
+    </head>
+    <body>
+        <h2>Mobile Camera Object Detection</h2>
+        <img src="/video" />
+    </body>
+    </html>
+    """)
+
+# Video route (for <img src>)
+@app.route('/video')
+def video():
+    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# Prediction route (used by mobile)
+@app.route('/predict', methods=['POST'])
+def predict():
+    print("📩 POST /predict received")
+    try:
+        data = request.get_json()
+        if 'image' not in data:
+            return jsonify({'error': 'No image provided'}), 400
+
+        image_data = data['image'].split(',')[1]
+        image_bytes = base64.b64decode(image_data)
+
+        img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        img = img.resize((224, 224))
+        x = image.img_to_array(img)
+        x = np.expand_dims(x, axis=0)
+        x = preprocess_input(x)
+
+        preds = model.predict(x)
+        decoded = decode_predictions(preds, top=1)[0][0]
+        label = decoded[1]
+        confidence = float(decoded[2])
+
+        print(f"✅ Prediction: {label} ({confidence:.2f})")
+        return jsonify({'label': label, 'confidence': confidence})
+
+    except Exception as e:
+        print(f"❌ Prediction error: {e}")
+        return jsonify({'error': 'Prediction failed'}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
